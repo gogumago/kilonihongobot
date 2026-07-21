@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 🗾 일본어 한 입 — 텔레그램 학습 봇
-- 2시간 간격(기본 08:00~20:00)으로 단어+문장 레슨 발송
+- 3시간 간격(기본 08:00~20:00)으로 단어 레슨 발송 (문장은 접기로 제공)
 - 매일 21:30 그날 배운 내용 총정리
 - 300개 레슨을 다 돌면 처음부터 자동 반복 (2회차부터는 복습 회차 표시)
 
@@ -25,10 +25,10 @@ from telegram.ext import (
 
 # ─────────── 설정 ───────────
 TZ = ZoneInfo("Asia/Seoul")
-LESSON_HOURS = [8, 10, 12, 14, 16, 18, 20]   # 2시간 간격 발송 시각
+LESSON_HOURS = [8, 11, 14, 17, 20]           # 3시간 간격 발송 시각
 SUMMARY_TIME = dt.time(21, 30, tzinfo=TZ)     # 총정리 시각
-QUIZ_HOURS = [11, 15, 19]                     # 퀴즈 발송 시각 (하루 3회)
-ITEMS_PER_MESSAGE = 2                          # 메시지당 레슨 수
+QUIZ_HOURS = [19]                             # 퀴즈 발송 시각 (하루 1회)
+ITEMS_PER_MESSAGE = 1                          # 메시지당 레슨 수
 STATE_FILE = os.environ.get("STATE_FILE", "state.json")
 LESSONS_FILE = os.path.join("data", "lessons.json")
 
@@ -71,25 +71,43 @@ def reset_if_new_day(chat):
         chat["today"] = []
 
 
+def _josa(word, pair):
+    """한국어 조사 자동 선택 pair='을를' 등"""
+    last = ""
+    for ch in reversed(word):
+        if 0xAC00 <= ord(ch) <= 0xD7A3:
+            last = ch; break
+    if not last:
+        return pair[1]
+    return pair[0] if (ord(last) - 0xAC00) % 28 != 0 else pair[1]
+
+
+CAT_EMOJI = {"food": "🍜", "drink": "☕", "place": "📍", "thing": "🎁",
+             "person": "🙋", "animal": "🐾", "transport": "🚗",
+             "time": "⏰", "body": "💪", "other": "💡"}
+
+
 # ─────────── 메시지 포맷 ───────────
 def fmt_lesson(lesson, seq_no, cycle):
     w, s = lesson["word"], lesson["sentence"]
-    cycle_tag = f" · {cycle}회차 복습" if cycle > 1 else ""
+    emoji = CAT_EMOJI.get(w.get("cat", ""), "💡")
+    cycle_tag = f" · {cycle}회차" if cycle > 1 else ""
+    hook = f"{emoji} '{w['mean']}'{_josa(w['mean'], '은는')} 일본어로 뭘까?"
     return (
-        f"┏━━━━━━━━━━━━━━┓\n"
-        f"  🗾 <b>일본어 한 입</b>  #{seq_no:03d}{cycle_tag}\n"
-        f"┗━━━━━━━━━━━━━━┛\n"
+        f"{hook}\n"
         f"\n"
-        f"📌 <b>{w['jp']}</b>  [{w['kr']}]\n"
-        f"      뜻: <b>{w['mean']}</b>  <i>({w['script']})</i>\n"
-        f"      🔤 {w['breakdown']}\n"
+        f"📌 <b>{w['jp']}</b>  [{w['kr']}]  <i>({w['script']})</i>\n"
+        f"🔤 {w['breakdown']}\n"
         f"\n"
-        f"✏️ <b>{s['jp']}</b>\n"
-        f"      🗣 {s['kr']}\n"
-        f"      💡 {s['mean']}\n"
+        f"<blockquote expandable>✏️ 문장으로 익히기\n"
+        f"\n"
+        f"<b>{s['jp']}</b>\n"
+        f"🗣 {s['kr']}\n"
+        f"💡 {s['mean']}\n"
         f"\n"
         f"📖 <b>{s['grammar']}</b>\n"
-        f"      {s['note']}"
+        f"{s['note']}</blockquote>\n"
+        f"<i>일본어 한 입 #{seq_no:03d}{cycle_tag}</i>"
     )
 
 
@@ -175,16 +193,6 @@ async def job_send_summary(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────── 퀴즈 (텔레그램 Quiz Poll 활용) ───────────
-def _josa(word, pair):
-    """한국어 조사 자동 선택 pair='을를' 등"""
-    last = ""
-    for ch in reversed(word):
-        if 0xAC00 <= ord(ch) <= 0xD7A3:
-            last = ch; break
-    if not last:
-        return pair[1]
-    return pair[0] if (ord(last) - 0xAC00) % 28 != 0 else pair[1]
-
 
 def _learned_pool(chat):
     """지금까지 배운 레슨 범위에서 출제 (최소 16개 확보)"""
@@ -291,8 +299,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🗾 <b>일본어 한 입</b>에 오신 걸 환영합니다!\n\n"
         "한국인이 이미 아는 외래어·기초 단어로\n"
         "히라가나·가타카나를 자연스럽게 익히는 봇이에요.\n\n"
-        f"⏰ <b>레슨 발송</b>: 매일 {hours} (2시간 간격)\n"
-        "🧩 <b>퀴즈</b>: 매일 11시, 15시, 19시 (객관식, 그날까지 배운 범위)\n"
+        f"⏰ <b>레슨 발송</b>: 매일 {hours} (3시간 간격)\n"
+        "🧩 <b>퀴즈</b>: 매일 저녁 7시 (객관식, 그날까지 배운 범위)\n"
         "🌙 <b>총정리</b>: 매일 밤 9시 30분 (뜻 가리기 셀프 퀴즈!)\n"
         "📚 단어 300개 + 문장 300개, 끝나면 자동 복습 반복\n\n"
         "<b>명령어</b>\n"
